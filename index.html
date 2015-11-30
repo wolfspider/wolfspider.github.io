@@ -1,0 +1,469 @@
+<!-- Licensed under a BSD license. -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sprite Mapping Example</title>
+<script>
+   "use strict";
+    var parameters = { start_time: new Date().getTime(), time: 0, aspectX: 190 / 240, aspectY: 1, screenWidth: 190, screenHeight: 240, simTime: 0, jumbleTime: 0};
+    window.onload = main;
+    var error = function (msg) {
+        if (window.console) {
+            if (window.console.error) {
+                window.console.error(msg);
+            }
+            else if (window.console.log) {
+                window.console.log(msg);
+            }
+        }
+    };
+    var defaultShaderType = [
+                         "VERTEX_SHADER",
+                         "FRAGMENT_SHADER"
+                       ];
+    /**
+    * Gets a WebGL context.
+    * makes its backing store the size it is displayed.
+    */
+    function getWebGLContext(canvas, opt_attribs) {
+        //init elements in the DOM here if necessary
+        var gl = setupWebGL(canvas, opt_attribs);
+        return gl;
+    };
+    function getExtensionWithKnownPrefixes(gl, name) {
+        for (var ii = 0; ii < browserPrefixes.length; ++ii) {
+            var prefixedName = browserPrefixes[ii] + name;
+            var ext = gl.getExtension(prefixedName);
+            if (ext) {
+                return ext;
+            }
+        }
+    };
+    function resizeCanvasToDisplaySize(canvas) {
+        if (canvas.width != canvas.clientWidth ||
+                             canvas.height != canvas.clientHeight) {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+        }
+    }
+    function setupWebGL(canvas, opt_attribs) {
+        function showLink(str) {
+            var container = canvas.parentNode;
+            if (container) {
+                container.innerHTML = makeFailHTML(str);
+            }
+        };
+        if (!window.WebGLRenderingContext) {
+            showLink(GET_A_WEBGL_BROWSER);
+            return null;
+        }
+        var context = create3DContext(canvas, opt_attribs);
+        if (!context) {
+            showLink(OTHER_PROBLEM);
+        }
+        return context;
+    };
+    function create3DContext(canvas, opt_attribs) {
+        var names = ["webgl", "experimental-webgl", "webkit-3d", "moz-webgl"];
+        var context = null;
+        for (var ii = 0; ii < names.length; ++ii) {
+            try {
+                context = canvas.getContext(names[ii], opt_attribs);
+            } catch (e) { }
+            if (context) {
+                break;
+            }
+        }
+        return context;
+    }
+    function createShaderFromScript(gl, scriptId, opt_shaderType, opt_errorCallback) {
+        var shaderSource = "";
+        var shaderType;
+        var shaderScript = document.getElementById(scriptId);
+        if (!shaderScript) {
+            throw ("*** Error: unknown script element" + scriptId);
+        }
+        shaderSource = shaderScript.text;
+        if (!opt_shaderType) {
+            if (shaderScript.type == "x-shader/x-vertex") {
+                shaderType = gl.VERTEX_SHADER;
+            } else if (shaderScript.type == "x-shader/x-fragment") {
+                shaderType = gl.FRAGMENT_SHADER;
+            } else if (shaderType != gl.VERTEX_SHADER && shaderType != gl.FRAGMENT_SHADER) {
+                throw ("*** Error: unknown shader type");
+                return null;
+            }
+        }
+        return loadShader(
+                             gl, shaderSource, opt_shaderType ? opt_shaderType : shaderType,
+                             opt_errorCallback);
+    };
+    function loadShader(gl, shaderSource, shaderType, opt_errorCallback) {
+        var errFn = opt_errorCallback || error;
+        // Create the shader object
+        var shader = gl.createShader(shaderType);
+        // Load the shader source
+        gl.shaderSource(shader, shaderSource);
+        // Compile the shader
+        gl.compileShader(shader);
+        // Check the compile status
+        var compiled = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+        if (!compiled) {
+            // Something went wrong during compilation; get the error
+            lastError = gl.getShaderInfoLog(shader);
+            errFn("*** Error compiling shader '" + shader + "':" + lastError);
+            gl.deleteShader(shader);
+            return null;
+        }
+        return shader;
+    }
+    function createProgram(gl, shaderScriptIds, opt_attribs, opt_locations, opt_errorCallback) {
+        var shaders = [];
+        for (var ii = 0; ii < shaderScriptIds.length; ++ii) {
+            shaders.push(createShaderFromScript(
+                               gl, shaderScriptIds[ii], gl[defaultShaderType[ii]], opt_errorCallback));
+        }
+        return loadProgram(gl, shaders, opt_attribs, opt_locations, opt_errorCallback);
+    };
+    function createProgramFromScripts(gl, shaderScriptIds, opt_attribs, opt_locations, opt_errorCallback) {
+        var shaders = [];
+        for (var ii = 0; ii < shaderScriptIds.length; ++ii) {
+            shaders.push(createShaderFromScript(
+                               gl, shaderScriptIds[ii], gl[defaultShaderType[ii]], opt_errorCallback));
+        }
+        return loadProgram(gl, shaders, opt_attribs, opt_locations, opt_errorCallback);
+    };
+    function loadProgram(gl, shaders, opt_attribs, opt_locations, opt_errorCallback) {
+        var errFn = opt_errorCallback || error;
+        var program = gl.createProgram();
+        for (var ii = 0; ii < shaders.length; ++ii) {
+            gl.attachShader(program, shaders[ii]);
+        }
+        if (opt_attribs) {
+            for (var ii = 0; ii < opt_attribs.length; ++ii) {
+                gl.bindAttribLocation(
+                                 program,
+                                 opt_locations ? opt_locations[ii] : ii,
+                                 opt_attribs[ii]);
+            }
+        }
+        gl.linkProgram(program);
+        // Check the link status
+        var linked = gl.getProgramParameter(program, gl.LINK_STATUS);
+        if (!linked) {
+            // something went wrong with the link
+            lastError = gl.getProgramInfoLog(program);
+            errFn("Error in program linking:" + lastError);
+            gl.deleteProgram(program);
+            return null;
+        }
+        return program;
+    };
+    /* export functions */
+    createProgram = loadProgram;
+    function loadImage(url, callback) {
+        var image = new Image();
+        image.crossOrigin = "anonymous";
+        image.src = url;
+        image.onload = callback;
+        return image;
+    }
+    function loadImages(urls, callback) {
+        var images = [];
+        var imagesToLoad = urls.length;
+        // Called each time an image finished
+        // loading.
+        var onImageLoad = function () {
+            --imagesToLoad;
+            // If all the images are loaded call the callback.
+            if (imagesToLoad == 0) {
+                callback(images);
+            }
+        };
+        for (var ii = 0; ii < imagesToLoad; ++ii) {
+            var image = loadImage(urls[ii], onImageLoad);
+            images.push(image);
+        }
+    }
+    
+       var spritewidth = [];
+       var spriteheight = [];
+       var spritex = [];
+       var spritey = [];
+       var spritexvelocity = [];
+       var spriteyvelocity = [];
+       
+       for(var jj = 0; jj <= 6; jj++){
+       	
+       		var sw = 190;
+       		spritewidth.push(sw);
+       		var sh = 240;
+       		spriteheight.push(sh);
+       		var sx = Math.random() * ( 880 - 190);
+       		spritex.push(sx);
+       		var sy = Math.random() * ( 660 - 240);
+       		spritey.push(sy);
+       		var sv = 0.0;
+       		spritexvelocity.push(sv);
+       		var sy = 0.0;
+       		spriteyvelocity.push(sy);
+       	
+       }
+    
+    
+    function main() {
+        loadImages(["monster.png",
+                         ], render);
+    }
+    function render(images) {
+        // Get A WebGL context
+        var canvas = document.getElementById("canvas");
+        var gl = getWebGLContext(canvas);
+        if (!gl) {
+            return;
+        }
+        
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+		gl.enable(gl.BLEND);
+        // setup GLSL program
+        var vertexShader = createShaderFromScript(gl, "2d-vertex-shader");
+        var fragmentShader = createShaderFromScript(gl, "2d-fragment-shader");
+        var program = createProgram(gl, [vertexShader, fragmentShader]);
+        gl.useProgram(program);
+        // look up where the vertex data needs to go.
+        var positionLocation = gl.getAttribLocation(program, "a_position");
+        var texCoordLocation = gl.getAttribLocation(program, "a_texCoord");
+        // provide texture coordinates for the rectangle.
+        var texCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                             0.0, 0.0,
+                             1.0, 0.0,
+                             0.0, 1.0,
+                             0.0, 1.0,
+                             1.0, 0.0,
+                             1.0, 1.0]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(texCoordLocation);
+        gl.vertexAttribPointer(texCoordLocation, 2, gl.FLOAT, false, 0, 0);
+        // create array of textures
+        var textures = [];
+        for (var ii = 0; ii < 3; ++ii) {
+            var texture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, texture);
+            // Set the parameters so we can render any size image.
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            // Upload the image into the texture.
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, images[ii]);
+            // add the texture to the array of textures.
+            textures.push(texture);
+        }
+        // lookup uniforms
+        var resolutionLocation = gl.getUniformLocation(program, "u_resolution");
+        // lookup the sampler locations.
+        var u_image0Location = gl.getUniformLocation(program, "texBase");
+        
+        // set the resolution
+        gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+        // set which texture units to render with.
+        gl.uniform1i(u_image0Location, 0);  // texture unit 0
+        
+        // Set each texture unit to use a particular texture.
+        //todo: set as foreach if possible 
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, textures[0]);
+        //gl.activeTexture(gl.TEXTURE1);
+        //gl.bindTexture(gl.TEXTURE_2D, textures[1]);
+        
+              
+    //main drawing loop     
+    
+    var loop = 0.0;
+    var eventId = setInterval(function () {
+    loop++;
+    if (loop === 9.0) {
+    //clearInterval will end event without loop
+    //clearInterval(eventId);
+    loop = 0.0;
+    }
+       
+    
+    simulStep(spritex, spritey, spritewidth, spriteheight, spritexvelocity, spriteyvelocity);
+    
+    
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+     // Set a rectangle at a specific size
+    //setRectangle(gl, 100+(loop*100), 50, 190, 240);
+        
+    //renderZone(gl, program, positionLocation, loop);
+    
+    for(var kk = 0; kk <= 6; kk++){
+    	
+    //console.log(spritex[kk]);
+    
+    setRectangle(gl, spritex[kk], spritey[kk], 190, 240);
+    
+    renderZone(gl, program, positionLocation, loop);
+    	
+    	
+    }
+    
+    
+    gl.disableVertexAttribArray(positionLocation); 
+    
+    }, 1000 * 0.08);
+    
+    }
+    
+    
+    function simulStep(spritex, spritey, spritewidth, spriteheight, spritexvelocity, spriteyvelocity){
+    	
+    	var coeff_of_restitution = 0.75;
+    	var speed_of_grav = 150.0;
+    	var jumble_delay = 15 * 1000;
+    	var max_velocity = 23;
+    	
+    	var timeDelta = (new Date().getTime() - parameters.start_time) - parameters.simTime;
+    	var timeDeltaSecs = parameters.simTime > 0 ? timeDelta / 1000 : 0;
+    	parameters.simTime = new Date().getTime() - parameters.start_time;
+    	
+    	//console.log(timeDelta, timeDeltaSecs, parameters.simTime, parameters.jumbleTime);
+    	
+    	if(((new Date().getTime() - parameters.start_time) - parameters.jumbleTime) > jumble_delay)
+    		parameters.jumbleTime = new Date().getTime() - parameters.start_time;
+    		
+    	for (var x = 0; x <= 6; x++)
+    	
+    	{
+    		
+    		if(parameters.jumbleTime > jumble_delay)
+    			{
+    				spritexvelocity[x] += (max_velocity / 2.0 ) - (Math.random() * max_velocity);
+    				spriteyvelocity[x] += (max_velocity / 2.0 ) - (Math.random() * max_velocity);
+    			}
+    		
+    		
+    		//Move sprites
+    		spritex[x] = spritex[x] + (spritexvelocity[x] * timeDeltaSecs);
+    		spritey[x] = spritey[x] + (spriteyvelocity[x] * timeDeltaSecs);
+    		
+    		//gravity calculation	
+    		spriteyvelocity[x] += speed_of_grav * timeDeltaSecs;
+    		
+    		
+    		if( ( spritex[x] < 0 && spritexvelocity[x] < 0 ) || ( spritex[x] > ( (880) - spriteheight[x] ) && spritexvelocity[x] > 0 ) )
+    		{
+    			spritexvelocity[x] = -spritexvelocity[x] * coeff_of_restitution;
+    			spritex[x] = Math.max(0, Math.min(spritex[x], ( (880) - spritewidth[x] )));
+    			
+    			if (Math.abs(spritexvelocity[x] < 0.01))
+    			spritexvelocity[x] = 0.0;
+    		}
+    		
+    		
+    		if( ( spritey[x] < 0 && spriteyvelocity[x] < 0 ) || ( spritey[x] > ( (660) - spriteheight[x] ) && spriteyvelocity[x] > 0 ) )
+    		{
+    			spriteyvelocity[x] = -spriteyvelocity[x] * coeff_of_restitution;
+    			spritey[x] = Math.max(0, Math.min(spritey[x], ( (660) - spriteheight[x] )));
+    			
+    			if (Math.abs(spriteyvelocity[x] > 0.01))
+    			spriteyvelocity[x] = 0.0;
+    		}
+    		
+    		
+    	}
+    		
+    }
+    	
+       
+    function renderZone(gl, program, positionLocation, loop) {
+    parameters.time = new Date().getTime() - parameters.start_time;
+        
+        
+        gl.uniform1f(gl.getUniformLocation(program, 'time'), parameters.time / 1000);
+        gl.uniform1f(gl.getUniformLocation(program, 'loop'), loop);
+        gl.uniform2f( gl.getUniformLocation( program, 'resolution' ), parameters.screenWidth, parameters.screenHeight );
+        gl.uniform2f( gl.getUniformLocation( program, 'aspect' ), parameters.aspectX, parameters.aspectY );
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+             
+        // Draw the rectangle.
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+    
+    
+    }
+    function randomInt(range) {
+        return Math.floor(Math.random() * range);
+    }
+    function setRectangle(gl, x, y, width, height) {
+        var x1 = x;
+        var x2 = x + width;
+        var y1 = y;
+        var y2 = y + height;
+        // Create a buffer for the position of the rectangle corners.
+        var positionBuffer = gl.createBuffer();  
+        gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);    
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+                            x1, y1,
+                            x2, y1,
+                            x1, y2,
+                            x1, y2,
+                            x2, y1,
+                            x2, y2]), gl.STATIC_DRAW);
+    }
+</script>
+<!-- vertex shader -->
+<script id="2d-vertex-shader" type="x-shader/x-vertex">
+attribute vec2 a_position;
+attribute vec2 a_texCoord;
+uniform vec2 u_resolution;
+uniform float time;
+varying vec2 texCoord;
+void main() {
+   // convert the rectangle from pixels to 0.0 to 1.0
+   vec2 zeroToOne = a_position / u_resolution;
+   // convert from 0->1 to 0->2
+   vec2 zeroToTwo = zeroToOne * 2.0;
+   // convert from 0->2 to -1->+1 (clipspace)
+   vec2 clipSpace = zeroToTwo - 1.0;
+   gl_Position = vec4(clipSpace * vec2(1, -1),0.0,1.0);
+   // pass the texCoord to the fragment shader
+   // The GPU will interpolate this value between points.
+   texCoord = vec2(a_texCoord.x*.10,a_texCoord.y);
+}
+</script>
+<!-- fragment shader -->
+<script id="2d-fragment-shader" type="x-shader/x-fragment">
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+   // Default precision
+   precision highp float;
+#else
+   precision mediump float;
+#endif
+
+uniform float loop;
+uniform float time;
+uniform sampler2D texBase;
+varying vec2 texCoord;
+void main(void)
+{
+    
+	float shiftInt = loop / 10.00;
+    
+    gl_FragColor = texture2D(texBase, vec2(texCoord.x + shiftInt, texCoord.y));
+    
+    //gl_FragColor.r -= sin(shiftInt / 2.0);
+    //gl_FragColor.g -= sin(shiftInt / 2.0);
+    //gl_FragColor.b -= sin(shiftInt / 2.0);
+    
+}
+</script>
+</head>
+<body>
+<canvas id="canvas" width="880" height="660"></canvas>
+</body>
+</html>
