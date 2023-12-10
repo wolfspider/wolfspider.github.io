@@ -20,12 +20,12 @@
       var numberOfChunks = 52;
       var video = document.querySelector('video');
 
-      if (!window.MediaSource) {
+      if (!window.ManagedMediaSource) {
         console.error('No Media Source API available');
         return;
       }
 
-      var ms = new MediaSource();
+      var ms = new ManagedMediaSource();
       video.src = window.URL.createObjectURL(ms);
       ms.addEventListener('sourceopen', onMediaSourceOpen);
 
